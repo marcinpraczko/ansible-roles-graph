@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import sys
 from argparse import ArgumentParser
@@ -7,7 +8,7 @@ import gv
 from glob import glob
 import yaml
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 __author__  = 'Sebastien Nicouleaud'
 
 def parse_args(args):
@@ -23,29 +24,19 @@ def parse_args(args):
         'jpg'
         >>> config.roles_dirs
         ['roles/', '../other/roles']
-
-    Provides sane defaults:
-
-        >>> config = parse_args([])
-        >>> config.output
-        'ansible-roles.png'
-        >>> config.format
-        'png'
-        >>> config.roles_dirs
-        ['roles']
     """
     p = ArgumentParser(description='Generate a picture of ansible roles graph.')
 
     p.add_argument('roles_dirs',
                    metavar='ROLES_DIR',
                    type=str,
-                   nargs='*',
-                   default=['roles'],
+                   nargs='+',
+                   default='./roles/',
                    help='a directory containing ansible roles')
 
     p.add_argument('-o', '--output',
                    type=str,
-                   default='ansible-roles.png',
+                   default='./ansible-roles.png',
                    help='the output file')
 
     p.add_argument('-f', '--format',
@@ -71,17 +62,40 @@ class GraphBuilder:
 
 def parse_roles(roles_dirs, builder=GraphBuilder()):
     for roles_dir in roles_dirs:
+        print "Processing folder with roles: {0}".format(roles_dir)
         for path in glob(join(roles_dir, '*/meta/main.yml')):
             dependent_role = path.split('/')[-3]
+            print "  - Processing role: {0}".format(dependent_role)
 
             builder.add_role(dependent_role)
 
             with open(path, 'r') as f:
-                for dependency in yaml.load(f.read())['dependencies']:
-                    depended_role = dependency['role']
+                data = yaml.safe_load(f)
 
-                    builder.add_role(depended_role)
-                    builder.link_roles(dependent_role, depended_role)
+            if 'dependencies' in data:
+                if not data['dependencies']:
+                    print "    - Found empty 'dependencies' - not connecting to others roles"
+                    continue
+                else:
+                    dependencies = data['dependencies']
+                    for dependency in dependencies:
+                        print "    - Processing dependency: {0}".format(dependency)
+                        if 'role' in dependency:
+                            depended_role = dependency['role']
+                        elif 'name' in dependency:
+                            # TODO: Make this option - not displaying well if there is role and role with version
+                            #       Two different roles will be created
+                            # if 'version' in dependency:
+                            #     depended_role = "{0}\n{1}".format(dependency['name'], dependency['version'])
+                            # else:
+                            depended_role = dependency['name']
+                        elif 'src' in dependency:
+                            depended_role = dependency['src']
+                        else:
+                            print "- WARNING: Seems that role '{0}' is not configured correctly".format(dependent_role)
+
+                        builder.add_role(depended_role)
+                        builder.link_roles(dependent_role, depended_role)
 
     return builder.graph
 
